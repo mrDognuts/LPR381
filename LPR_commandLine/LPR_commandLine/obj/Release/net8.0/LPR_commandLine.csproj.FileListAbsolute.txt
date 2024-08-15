@@ -1,0 +1,4 @@
+C:\Users\walte\OneDrive - belgiumcampus.ac.za\STUDIES\3ThirdYear\LPR381 LinearPrograming\Project\LPR_commandLine\LPR_commandLine\LPR_commandLine\obj\Release\net8.0\LPR_commandLine.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\walte\OneDrive - belgiumcampus.ac.za\STUDIES\3ThirdYear\LPR381 LinearPrograming\Project\LPR_commandLine\LPR_commandLine\LPR_commandLine\obj\Release\net8.0\LPR_commandLine.AssemblyInfoInputs.cache
+C:\Users\walte\OneDrive - belgiumcampus.ac.za\STUDIES\3ThirdYear\LPR381 LinearPrograming\Project\LPR_commandLine\LPR_commandLine\LPR_commandLine\obj\Release\net8.0\LPR_commandLine.AssemblyInfo.cs
+C:\Users\walte\OneDrive - belgiumcampus.ac.za\STUDIES\3ThirdYear\LPR381 LinearPrograming\Project\LPR_commandLine\LPR_commandLine\LPR_commandLine\obj\Release\net8.0\LPR_commandLine.csproj.CoreCompileInputs.cache
