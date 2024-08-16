@@ -16,36 +16,129 @@ namespace LPR_commandLine.Models
         public int NumVariables => Objective.Coefficients.Count;
         public int NumConstraints => Constraints.Count;
 
+
         public LinearProgrammingModel()
         {
             Constraints = new List<Constraint>();
             SignRestrictions = new List<string>();
             IsBinary = new List<bool>();
+            Tableau = null;
+        }
+        public void InitializeFromTable(Table table)
+        {
+            // Initialize Objective Function
+            Objective = new ObjectiveFunction
+            {
+                Type = table.ObjectiveCoefficients.Any(x => x < 0) ? "Maximize" : "Minimize",
+                Coefficients = new List<double>(table.ObjectiveCoefficients)
+            };
+
+            // Initialize Constraints
+            Constraints.Clear();
+            for (int i = 0; i < table.ConstraintCoefficients.Count; i++)
+            {
+                var constraint = new Constraint
+                {
+                    Coefficients = new List<double>(table.ConstraintCoefficients[i]),
+                    Relation = table.Relations[i],
+                    RHS = table.RHS[i]
+                };
+                Constraints.Add(constraint);
+            }
+
+            // Initialize Sign Restrictions
+            SignRestrictions = new List<string>(table.SignRestrictions);
+
+            // Initialize Binary Variables
+            IsBinary = new List<bool>(table.IsBinary);
+
+            // Initialize the Tableau
+            int numRows = Constraints.Count + 1; // One row for each constraint + the objective function
+            int numCols = Objective.Coefficients.Count + Constraints.Count + 1; // Variables + Slack/Surplus variables + RHS
+            InitializeTableau(numRows, numCols);
+
+            // Populate the Tableau with the initial data
+            UpdateTableau();
+        }
+        public Table ToTable()
+        {
+            var table = new Table();
+
+            // Populate Objective Function
+            table.ObjectiveCoefficients = new List<double>(Objective.Coefficients);
+
+            // Populate Constraints
+            foreach (var constraint in Constraints)
+            {
+                table.ConstraintCoefficients.Add(new List<double>(constraint.Coefficients));
+                table.Relations.Add(constraint.Relation);
+                table.RHS.Add(constraint.RHS);
+            }
+
+            // Populate Sign Restrictions
+            table.SignRestrictions = new List<string>(SignRestrictions);
+
+            // Populate Binary Variables
+            table.IsBinary = new List<bool>(IsBinary);
+
+            return table;
         }
 
-        // Resize tableau with proper validation
-        public void ResizeTableau(int numRows, int numCols)
+
+        public void InitializeTableau(int numRows, int numCols)
+        {
+            Tableau = new double[numRows, numCols];
+            // Additional logic to populate the tableau with initial values
+        }
+
+        public double[,] GetTableau()
+        {
+            return Tableau;
+        }
+
+        public void SetInitialTableau(double[,] initialTableau)
+        {
+            Tableau = initialTableau;
+        }
+        public double[,] CopyOptimalTableau()
         {
             if (Tableau == null)
             {
-                Tableau = new double[numRows, numCols];
-                return;
+                throw new InvalidOperationException("Optimal tableau is not initialized.");
             }
 
-            double[,] newTableau = new double[numRows, numCols];
-            for (int i = 0; i < Math.Min(numRows, Tableau.GetLength(0)); i++)
+            int numRows = Tableau.GetLength(0);
+            int numCols = Tableau.GetLength(1);
+
+            // Create a new tableau with the same dimensions
+            double[,] copiedTableau = new double[numRows, numCols];
+
+            // Copy the contents of the original tableau
+            Array.Copy(Tableau, copiedTableau, Tableau.Length);
+
+            return copiedTableau;
+        }
+        public void ResizeTableau(int numRows, int numCols)
+        {
+            if (Tableau == null || numRows > Tableau.GetLength(0) || numCols > Tableau.GetLength(1))
             {
-                for (int j = 0; j < Math.Min(numCols, Tableau.GetLength(1)); j++)
+                double[,] newTableau = new double[numRows, numCols];
+                if (Tableau != null)
                 {
-                    newTableau[i, j] = Tableau[i, j];
+                    int rowsToCopy = Math.Min(numRows, Tableau.GetLength(0));
+                    int colsToCopy = Math.Min(numCols, Tableau.GetLength(1));
+                    for (int i = 0; i < rowsToCopy; i++)
+                    {
+                        for (int j = 0; j < colsToCopy; j++)
+                        {
+                            newTableau[i, j] = Tableau[i, j];
+                        }
+                    }
                 }
+                Tableau = newTableau;
             }
-            Tableau = newTableau;
         }
 
-
-
-        // Add binary constraint and ensure list size
         public void AddBinaryConstraint(int variableIndex)
         {
             while (IsBinary.Count <= variableIndex)
@@ -55,7 +148,6 @@ namespace LPR_commandLine.Models
             IsBinary[variableIndex] = true;
         }
 
-        // Add constraint and update tableau
         public void AddConstraint(double[] coefficients, double rhs, string relation)
         {
             Constraints.Add(new Constraint
@@ -65,12 +157,11 @@ namespace LPR_commandLine.Models
                 Relation = relation
             });
         }
+
         public void AddConstraint(Constraint constraint)
         {
             Constraints.Add(constraint);
         }
-
-
 
         public LinearProgrammingModel CloneModel()
         {
@@ -102,7 +193,6 @@ namespace LPR_commandLine.Models
             return clonedModel;
         }
 
-        // Update tableau dimensions and content
         public void UpdateTableau()
         {
             int numRows = Constraints.Count + 1; // Constraints + Objective function
@@ -131,29 +221,176 @@ namespace LPR_commandLine.Models
             {
                 Tableau[i, Objective.Coefficients.Count + i - 1] = 1;
             }
+
+            // Debugging: Print the tableau after updating
+            Console.WriteLine("Tableau After Update:");
+            PrintTableau(Tableau);
         }
 
-
-
-        // Apply cut to the model
         public void ApplyCut(Constraint cut)
         {
-            AddConstraint(cut);
+            Constraints.Add(cut);
+            AddConstraintToOptimalTableau(cut);
         }
-    }
 
-    public class ObjectiveFunction
-    {
-        public string Type { get; set; }
-        public List<double> Coefficients { get; set; }
-
-        public ObjectiveFunction()
+        private void AddConstraintToOptimalTableau(Constraint newConstraint)
         {
-            Coefficients = new List<double>();
+            if (Tableau == null)
+            {
+                throw new InvalidOperationException("Tableau has not been initialized.");
+            }
+
+            int numRows = Tableau.GetLength(0) + 1; // Add one row for the new constraint
+            int numCols = Tableau.GetLength(1) + 1; // Add one column for the slack variable or other variables
+
+            ResizeTableau(numRows, numCols);
+
+            int newRowIndex = numRows - 1; // Index of the new row
+
+            // Add the new constraint coefficients to the tableau
+            for (int j = 0; j < newConstraint.Coefficients.Count; j++)
+            {
+                Tableau[newRowIndex, j] = newConstraint.Coefficients[j];
+            }
+
+            // Add the slack variable (if applicable)
+            int slackVarIndex = Objective.Coefficients.Count + Constraints.Count - 1;
+            if (slackVarIndex < numCols)
+            {
+                Tableau[newRowIndex, slackVarIndex] = 1;
+            }
+
+            // Set the RHS value
+            Tableau[newRowIndex, numCols - 1] = newConstraint.RHS;
+
+            // Debugging: Print the tableau after adding the constraint
+            Console.WriteLine("Tableau After Adding Constraint:");
+            PrintTableau(Tableau);
+        }
+
+        public void PrintTableau(double[,] tableau)
+        {
+            if (tableau == null)
+            {
+                Console.WriteLine("Tableau is null.");
+                return;
+            }
+
+            int numRows = tableau.GetLength(0);
+            int numCols = tableau.GetLength(1);
+
+            Console.WriteLine("Current Tableau:");
+            for (int i = 0; i < numRows; i++)
+            {
+                for (int j = 0; j < numCols; j++)
+                {
+                    Console.Write($"{tableau[i, j],10:F2} "); // Format to 2 decimal places
+                }
+                Console.WriteLine();
+            }
+        }
+
+        public void PrintConstraints()
+        {
+            if (Constraints == null || Constraints.Count == 0)
+            {
+                Console.WriteLine("No constraints available.");
+                return;
+            }
+
+            Console.WriteLine("Current Constraints:");
+            for (int i = 0; i < Constraints.Count; i++)
+            {
+                var c = Constraints[i];
+                Console.WriteLine($"Constraint {i + 1}: " +
+                    $"{string.Join(" ", c.Coefficients.Select(x => x.ToString("F2")))} " +
+                    $"{c.Relation} {c.RHS:F2}");
+            }
+        }
+        private Constraint TransformConstraint(double[,] tableau, int constraintIndex)
+        {
+            int numCols = tableau.GetLength(1);
+
+            // Extract coefficients and RHS from the chosen constraint
+            double[] coefficients = new double[numCols - 1];
+            for (int j = 0; j < numCols - 1; j++)
+            {
+                coefficients[j] = tableau[constraintIndex, j];
+            }
+            double rhs = tableau[constraintIndex, numCols - 1];
+
+            // Break coefficients and RHS into integer and decimal parts
+            int[] integerCoefficients = new int[numCols - 1];
+            double[] decimalCoefficients = new double[numCols - 1];
+            int integerRhs = (int)rhs;
+            double decimalRhs = rhs - integerRhs;
+
+            for (int j = 0; j < numCols - 1; j++)
+            {
+                integerCoefficients[j] = (int)coefficients[j];
+                decimalCoefficients[j] = coefficients[j] - integerCoefficients[j];
+            }
+
+            // Handle negative decimals
+            for (int j = 0; j < numCols - 1; j++)
+            {
+                if (decimalCoefficients[j] < 0)
+                {
+                    decimalCoefficients[j] = 1 + decimalCoefficients[j];
+                }
+            }
+
+            // Remove integer parts
+            for (int j = 0; j < numCols - 1; j++)
+            {
+                coefficients[j] = decimalCoefficients[j];
+            }
+            decimalRhs = decimalRhs < 0 ? 1 + decimalRhs : decimalRhs;
+
+            // Multiply by -1
+            for (int j = 0; j < numCols - 1; j++)
+            {
+                coefficients[j] = -coefficients[j];
+            }
+            rhs = -decimalRhs;
+
+            // Create the new constraint
+            Constraint newConstraint = new Constraint
+            {
+                Coefficients = coefficients.ToList(),
+                Relation = "<=",
+                RHS = rhs
+            };
+
+            return newConstraint;
         }
     }
 
-    public class Constraint
+
+
+}
+
+
+
+
+public class ObjectiveFunction
+{
+    public string Type { get; set; } // "Minimize" or "Maximize"
+    public List<double> Coefficients { get; set; }
+
+    public ObjectiveFunction()
+    {
+        Coefficients = new List<double>();
+    }
+
+    public ObjectiveFunction(string type, double[] coefficients)
+    {
+        Type = type;
+        Coefficients = new List<double>(coefficients);
+    }
+}
+
+public class Constraint
     {
         public List<double> Coefficients { get; set; }
         public string Relation { get; set; }
@@ -162,6 +399,30 @@ namespace LPR_commandLine.Models
         public Constraint()
         {
             Coefficients = new List<double>();
+        }
+        public override bool Equals(object obj)
+        {
+            if (obj is Constraint other)
+            {
+                return Coefficients.SequenceEqual(other.Coefficients) && RHS == other.RHS && Relation == other.Relation;
+            }
+            return false;
+        }
+
+        public override int GetHashCode()
+        {
+            // Generate a hash code based on coefficients, RHS, and relation
+            unchecked
+            {
+                int hash = 17;
+                hash = hash * 23 + RHS.GetHashCode();
+                hash = hash * 23 + Relation.GetHashCode();
+                foreach (var coef in Coefficients)
+                {
+                    hash = hash * 23 + coef.GetHashCode();
+                }
+                return hash;
+            }
         }
 
         public void Transform()
@@ -205,4 +466,3 @@ namespace LPR_commandLine.Models
             IsBinary = new List<bool>();
         }
     }
-}

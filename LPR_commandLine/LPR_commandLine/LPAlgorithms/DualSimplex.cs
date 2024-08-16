@@ -17,20 +17,29 @@ namespace LPR_commandLine.LPAlgorithms
         {
             _model = model;
             _initializer = new InitializeTable(model);
+            _initializer.InitializeTableau(); // Ensure tableau is initialized here
         }
 
         public void UpdateModel(LinearProgrammingModel model)
         {
             _model = model;
             _initializer = new InitializeTable(model);
+            _initializer.InitializeTableau(); // Reinitialize tableau
         }
 
         public (object solution, bool isOptimal, double[,] finalTableau) Solve()
         {
-            _initializer.InitializeTableau();
+            double[,] tableau = _initializer.Tableau;
+
+            // Check if tableau is null
+            if (tableau == null)
+            {
+                Console.WriteLine("Tableau not initialized.");
+                return (null, false, null);
+            }
+
             PrintTableau();
 
-            double[,] tableau = _initializer.Tableau;
             int numRows = tableau.GetLength(0);
             int numCols = tableau.GetLength(1);
 
@@ -159,25 +168,16 @@ namespace LPR_commandLine.LPAlgorithms
             int numRows = tableau.GetLength(0);
             int numCols = tableau.GetLength(1);
             int pivotRow = -1;
-            double maxRatio = double.NegativeInfinity;
+            double minRHS = 0; // Initialize minRHS to 0
 
             for (int i = 1; i < numRows; i++)
             {
-                if (tableau[i, numCols - 1] < 0)
+                if (tableau[i, numCols - 1] < minRHS)
                 {
-                    optimal = false;
-                    double ratio = tableau[i, numCols - 1] / tableau[i, numCols - 2];
-                    if (ratio > maxRatio)
-                    {
-                        maxRatio = ratio;
-                        pivotRow = i;
-                    }
+                    minRHS = tableau[i, numCols - 1];
+                    pivotRow = i;
+                    optimal = false; // Set optimal to false if a negative RHS is found
                 }
-            }
-
-            if (pivotRow < 0 || pivotRow >= numRows)
-            {
-                Console.WriteLine($"Invalid pivotRow: {pivotRow}");
             }
 
             return pivotRow;
@@ -236,7 +236,8 @@ namespace LPR_commandLine.LPAlgorithms
 
         private void PrintTableau()
         {
-            if (_initializer.Tableau == null)
+            double[,] tableau = _initializer.Tableau;
+            if (tableau == null)
             {
                 Console.WriteLine("Tableau not initialized.");
                 return;
@@ -244,7 +245,7 @@ namespace LPR_commandLine.LPAlgorithms
 
             Console.WriteLine("Dual Simplex Tableau:");
 
-            int numCols = _initializer.Tableau.GetLength(1);
+            int numCols = tableau.GetLength(1);
             int numVariables = _model.Objective.Coefficients.Count;
 
             Console.Write("        ");
@@ -258,13 +259,13 @@ namespace LPR_commandLine.LPAlgorithms
             }
             Console.WriteLine("   RHS");
 
-            for (int i = 0; i < _initializer.Tableau.GetLength(0); i++)
+            for (int i = 0; i < tableau.GetLength(0); i++)
             {
                 Console.Write(i == 0 ? " z     " : $" c{i}   ");
 
                 for (int j = 0; j < numCols; j++)
                 {
-                    Console.Write($"{_initializer.Tableau[i, j],8:F2} ");
+                    Console.Write($"{tableau[i, j],8:F2} ");
                 }
                 Console.WriteLine();
             }

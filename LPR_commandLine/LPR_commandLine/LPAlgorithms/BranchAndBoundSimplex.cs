@@ -12,6 +12,7 @@ namespace LPR_commandLine.LPAlgorithms
     {
         private LinearProgrammingModel _model;
         private ISimplexAlgorithm _simplexAlgorithm;
+        private double[,] _finalTableau;
 
         public BranchAndBoundAlgorithm(LinearProgrammingModel model)
         {
@@ -22,13 +23,13 @@ namespace LPR_commandLine.LPAlgorithms
         public void RunBranchAndBound()
         {
             var solutions = new List<(double[] Solution, double ObjectiveValue)>();
-            var nodes = new Queue<LinearProgrammingModel>();
+            var nodes = new Queue<(LinearProgrammingModel Model, string SubproblemNumber)>(); // Store model and subproblem number
             var visitedModels = new HashSet<string>(); // To avoid revisiting the same model
-            nodes.Enqueue(_model);
+            nodes.Enqueue((_model, "0")); // Initial node with subproblem number 0
 
             while (nodes.Count > 0)
             {
-                var currentModel = nodes.Dequeue();
+                var (currentModel, subproblemNumber) = nodes.Dequeue();
                 var modelKey = GetModelKey(currentModel); // Generate a unique key for the model
                 if (visitedModels.Contains(modelKey))
                 {
@@ -36,7 +37,7 @@ namespace LPR_commandLine.LPAlgorithms
                 }
                 visitedModels.Add(modelKey);
 
-                Console.WriteLine("\nProcessing Node:");
+                Console.WriteLine($"\nProcessing Node {subproblemNumber}:");
                 DisplayModel(currentModel);
 
                 // Update the simplex algorithm with the current model
@@ -44,6 +45,7 @@ namespace LPR_commandLine.LPAlgorithms
 
                 // Solve the LP relaxation for the current node
                 var (solutionObj, isOptimal, finalTableau) = _simplexAlgorithm.Solve();
+                _finalTableau = finalTableau;
 
                 if (!isOptimal)
                 {
@@ -78,7 +80,7 @@ namespace LPR_commandLine.LPAlgorithms
                 {
                     // Generate and add branches
                     Console.WriteLine("Solution is not integer. Branching...");
-                    GenerateBranches(solution, nodes);
+                    GenerateBranches(solution, nodes, subproblemNumber);
                 }
             }
 
@@ -146,7 +148,7 @@ namespace LPR_commandLine.LPAlgorithms
             return solution.Zip(_model.Objective.Coefficients, (x, c) => x * c).Sum();
         }
 
-        private void GenerateBranches(double[] solution, Queue<LinearProgrammingModel> nodes)
+        private void GenerateBranches(double[] solution, Queue<(LinearProgrammingModel Model, string SubproblemNumber)> nodes, string parentSubproblemNumber)
         {
             for (int i = 0; i < solution.Length; i++)
             {
@@ -155,18 +157,154 @@ namespace LPR_commandLine.LPAlgorithms
                     double floorValue = Math.Floor(solution[i]);
                     double ceilValue = Math.Ceiling(solution[i]);
 
+                    // Create new models based on the original model
                     var model1 = CreateSubproblemWithConstraint(i, floorValue, "<=");
-                    nodes.Enqueue(model1);
-                    Console.WriteLine($"Branching with x{i + 1} <= {floorValue}");
-
                     var model2 = CreateSubproblemWithConstraint(i, ceilValue, ">=");
-                    nodes.Enqueue(model2);
+
+                    // Add the new models to the queue
+                    nodes.Enqueue((model1, parentSubproblemNumber + ".1"));
+                    nodes.Enqueue((model2, parentSubproblemNumber + ".2"));
+
+                    Console.WriteLine($"Branching with x{i + 1} <= {floorValue}");
                     Console.WriteLine($"Branching with x{i + 1} >= {ceilValue}");
 
                     break;
                 }
             }
         }
+
+        //public LinearProgrammingModel CreateModelFromTableau(LinearProgrammingModel originalModel, double[,] finalTableau)
+        //{
+        //    //int numRows = finalTableau.GetLength(0);
+        //    //int numCols = finalTableau.GetLength(1);
+
+        //    //// Determine the number of original variables (excluding slack/surplus)
+        //    //int numOriginalVars = numCols - numRows - 1;
+
+        //    //// Create objective function using original model information
+        //    //var objective = new ObjectiveFunction();
+        //    //objective.Type = originalModel.Objective.Type;
+        //    //objective.Coefficients = new List<double>(numOriginalVars);
+        //    //for (int j = 1; j <= numOriginalVars; j++)
+        //    //{
+        //    //    objective.Coefficients.Add(finalTableau[0, j] * (objective.Type == "max" ? -1 : 1));
+        //    //}
+
+        //    //// Create constraints using coefficients from the final tableau
+        //    //var constraints = new List<Constraint>();
+        //    //for (int i = 1; i < numRows; i++)
+        //    //{
+        //    //    var constraint = new Constraint
+        //    //    {
+        //    //        Coefficients = new List<double>(numOriginalVars),
+        //    //        Relation = originalModel.Constraints[i - 1].Relation,
+        //    //        RHS = finalTableau[i, numCols - 1]
+        //    //    };
+        //    //    for (int j = 1; j <= numOriginalVars; j++)
+        //    //    {
+        //    //        constraint.Coefficients.Add(finalTableau[i, j]);
+        //    //    }
+        //    //    constraints.Add(constraint);
+        //    //}
+
+        //    //// Infer sign restrictions (assuming non-negative for original variables)
+        //    //var signRestrictions = originalModel.SignRestrictions;
+
+        //    //// Create the model with a deep copy of the final tableau coefficients
+        //    //var newTableau = new double[numRows, numCols];
+        //    //Array.Copy(finalTableau, 0, newTableau, 0, finalTableau.Length);
+        //    //var model = new LinearProgrammingModel
+        //    //{
+        //    //    Objective = objective,
+        //    //    Constraints = constraints,
+        //    //    SignRestrictions = signRestrictions,
+        //    //    Tableau = newTableau // Deep copy of the final tableau
+        //    //};
+
+        //    return model;
+        //}
+
+        private LinearProgrammingModel CreateModelFromTableau(LinearProgrammingModel originalModel, double[,] finalTableau)
+        {
+            // Extract objective type and sign restrictions from original model
+            var objectiveType = originalModel.Objective.Type;
+            var signRestrictions = originalModel.SignRestrictions.ToList();
+
+            // Extract objective function coefficients from final tableau
+            int numVariables = originalModel.NumVariables;
+            var objectiveCoefficients = new double[numVariables];
+            for (int j = 0; j < numVariables; j++)
+            {
+                if (j >= finalTableau.GetLength(1))
+                    throw new ArgumentOutOfRangeException($"Index {j} is out of range for tableau columns.");
+                objectiveCoefficients[j] = finalTableau[0, j];
+            }
+
+            // Extract RHS values from final tableau (assuming last column represents RHS)
+            int numConstraints = finalTableau.GetLength(0) - 1;
+            var rhsValues = new double[numConstraints];
+            for (int i = 1; i < finalTableau.GetLength(0); i++)
+            {
+                if (finalTableau.GetLength(1) <= 1)
+                    throw new ArgumentOutOfRangeException("Tableau does not have enough columns for RHS.");
+                rhsValues[i - 1] = finalTableau[i, finalTableau.GetLength(1) - 1];
+            }
+
+            // Extract constraint coefficients from final tableau
+            var constraints = new List<Constraint>();
+            for (int i = 1; i < finalTableau.GetLength(0); i++)
+            {
+                var constraintCoefficients = new double[numVariables];
+                for (int j = 0; j < numVariables; j++)
+                {
+                    if (j >= finalTableau.GetLength(1))
+                        throw new ArgumentOutOfRangeException($"Index {j} is out of range for tableau columns.");
+                    constraintCoefficients[j] = finalTableau[i, j];
+                }
+                string relation = GetConstraintRelation(rhsValues[i - 1]);
+                constraints.Add(CreateConstraint(constraintCoefficients, relation, rhsValues[i - 1]));
+            }
+
+            // Create a new model with extracted data
+            var newModel = new LinearProgrammingModel
+            {
+                Objective = new ObjectiveFunction(objectiveType, objectiveCoefficients),
+                Constraints = constraints,
+                SignRestrictions = signRestrictions,
+                Tableau = (double[,])finalTableau.Clone() // Deep copy of the tableau
+            };
+
+            return newModel;
+        }
+
+        private string GetConstraintRelation(double rhs)
+        {
+            // Implement logic to determine the relation based on RHS or other criteria
+            // For example:
+            if (rhs >= 0)
+            {
+                return "≤";
+            }
+            else
+            {
+                return "≥";
+            }
+        }
+
+        private Constraint CreateConstraint(double[] coefficients, string relation, double rhs)
+        {
+            // Ensure coefficients is properly converted to List<double>
+            var coefficientList = new List<double>(coefficients);
+
+            return new Constraint
+            {
+                Coefficients = coefficientList,
+                Relation = relation,
+                RHS = rhs
+            };
+        }
+
+
 
         private LinearProgrammingModel CreateSubproblemWithConstraint(int variableIndex, double bound, string relation)
         {
@@ -199,7 +337,7 @@ namespace LPR_commandLine.LPAlgorithms
             }
             return rhsValues;
         }
+
+
     }
 }
-
-

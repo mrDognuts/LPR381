@@ -21,6 +21,7 @@ namespace LPR381_Project
         private static List<int> _basicVariables = new List<int>();
         private static List<int> _nonBasicVariables = new List<int>();
 
+
         static void Main(string[] args)
         {
 
@@ -305,14 +306,37 @@ namespace LPR381_Project
             }
         }
 
+        //  private static ISimplexAlgorithm simplexAlgorithm = new PrimalSimplex(); // Use your actual implementation of ISimplexAlgorithm
+
         private static void RunCuttingPlane()
         {
             if (model != null)
             {
                 try
                 {
-                    CuttingPlaneAlgorithm cuttingPlaneAlgorithm = new CuttingPlaneAlgorithm(model);
-                    cuttingPlaneAlgorithm.RunCuttingPlane();
+                    // Initialize the tableau dimensions
+                    int numRows = model.NumConstraints + 1; // Include objective row
+                    int numCols = model.NumVariables + model.NumConstraints + 1; // Include RHS column
+                    model.InitializeTableau(numRows, numCols);
+
+                    // Update the tableau with initial values
+                    model.UpdateTableau();
+
+                    // Retrieve and set the initial tableau
+                    double[,] initialTableau = model.GetTableau();
+                    model.SetInitialTableau(initialTableau);
+
+                    // Debugging: Print the initial tableau
+                    Console.WriteLine("Initial Tableau:");
+                    PrintTableau(initialTableau);
+
+                    // Initialize Simplex and Dual Simplex algorithms
+                    PrimalSimplex simplex = new PrimalSimplex(model);
+                    DualSimplex dualSimplex = new DualSimplex(model);
+
+                    // Initialize and solve using the Cutting Plane algorithm
+                    CuttingPlane cuttingPlane = new CuttingPlane(model, simplex, dualSimplex);
+                    cuttingPlane.Solve();
                 }
                 catch (Exception ex)
                 {
@@ -321,12 +345,28 @@ namespace LPR381_Project
             }
             else
             {
-                Console.WriteLine("Model not loaded.");
+                Console.WriteLine("Model or Simplex Algorithm not loaded.");
+            }
+        }
+
+        // Helper method to print the tableau
+        private static void PrintTableau(double[,] tableau)
+        {
+            int numRows = tableau.GetLength(0);
+            int numCols = tableau.GetLength(1);
+
+            for (int i = 0; i < numRows; i++)
+            {
+                for (int j = 0; j < numCols; j++)
+                {
+                    Console.Write($"{tableau[i, j]:F2}\t");
+                }
+                Console.WriteLine();
             }
         }
 
 
-      private static void PerformSensitivityAnalysis()
+        private static void PerformSensitivityAnalysis()
         {
             var lpModel = model;
             var optimalTableau = _optimalTableau; 
